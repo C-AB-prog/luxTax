@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         Int      @id @default(autoincrement())
+  telegramId String   @unique @map("telegram_id")
+  username   String?
+  firstName  String?  @map("first_name")
+  lastName   String?  @map("last_name")
+  phone      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  orders     Order[]
+
+  @@map("users")
+}
+
+model Order {
+  id            Int         @id @default(autoincrement())
+  userId        Int         @map("user_id")
+  user          User        @relation(fields: [userId], references: [id])
+  serviceType   ServiceType @map("service_type")
+  address       String
+  scheduledTime DateTime?   @map("scheduled_time")
+  durationHours Int?        @map("duration_hours")
+  approxDuration String?    @map("approx_duration")
+  airport       Airport?
+  flightNumber  String?     @map("flight_number")
+  comment       String?
+  status        OrderStatus @default(NEW)
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@map("orders")
+}
+
+enum ServiceType {
+  SOBER_DRIVER
+  DRIVER_BY_HOUR
+  DRIVER_WEEKEND
+  AIRPORT_TO
+  AIRPORT_FROM
+}
+
+enum Airport {
+  SVO
+  DME
+  VKO
+}
+
+enum OrderStatus {
+  NEW
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
