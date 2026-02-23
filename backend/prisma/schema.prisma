@@ -31,8 +31,12 @@ model Order {
   approxDuration String?    @map("approx_duration")
   airport       Airport?
   flightNumber  String?     @map("flight_number")
+  valetAction   String?     @map("valet_action")
+  restaurant    String?
+  extraServices String?     @map("extra_services")
   comment       String?
   status        OrderStatus @default(NEW)
+  operatorName  String?     @map("operator_name")
   createdAt     DateTime    @default(now()) @map("created_at")
 
   @@map("orders")
@@ -44,6 +48,7 @@ enum ServiceType {
   DRIVER_WEEKEND
   AIRPORT_TO
   AIRPORT_FROM
+  VALET_PARKING
 }
 
 enum Airport {
