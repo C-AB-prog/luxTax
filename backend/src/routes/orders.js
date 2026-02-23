@@ -11,14 +11,9 @@ router.post('/', async (req, res) => {
   if (!user.phone) return res.status(400).json({ error: 'Phone number required to create order' });
 
   const {
-    serviceType,
-    address,
-    scheduledTime,
-    durationHours,
-    approxDuration,
-    airport,
-    flightNumber,
-    comment
+    serviceType, address, scheduledTime, durationHours,
+    approxDuration, airport, flightNumber,
+    valetAction, restaurant, extraServices, comment
   } = req.body;
 
   if (!serviceType || !address) {
@@ -35,6 +30,9 @@ router.post('/', async (req, res) => {
       approxDuration: approxDuration || null,
       airport: airport || null,
       flightNumber: flightNumber || null,
+      valetAction: valetAction || null,
+      restaurant: restaurant || null,
+      extraServices: extraServices || null,
       comment: comment || null,
     }
   });
