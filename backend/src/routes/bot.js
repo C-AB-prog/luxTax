@@ -1,8 +1,8 @@
 const router = require('express').Router();
 const prisma = require('../prisma');
-const { sendMessage, answerCallbackQuery, forwardMessage } = require('../services/bot');
+const { sendMessage, answerCallbackQuery, forwardMessage, notifyUser } = require('../services/bot');
+const axios = require('axios');
 
-// Verify webhook secret
 router.use((req, res, next) => {
   const secret = req.headers['x-telegram-bot-api-secret-token'];
   if (secret !== process.env.WEBHOOK_SECRET) {
@@ -12,17 +12,24 @@ router.use((req, res, next) => {
 });
 
 router.post('/', async (req, res) => {
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  const body = req.body;
 
-  // Handle callback queries (operator buttons)
   if (body.callback_query) {
-    const { id, data, message } = body.callback_query;
-    const [, newStatus, orderId] = data.split(':');
+    const { id, data, message, from } = body.callback_query;
+    const parts = data.split(':');
+    const newStatus = parts[1];
+    const orderId = Number(parts[2]);
 
     try {
-      await prisma.order.update({
-        where: { id: Number(orderId) },
-        data: { status: newStatus }
+      const operatorName = from?.first_name || from?.username || null;
+
+      const order = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: newStatus,
+          ...(newStatus === 'IN_PROGRESS' ? { operatorName } : {})
+        },
+        include: { user: true }
       });
 
       const statusMap = {
@@ -31,16 +38,29 @@ router.post('/', async (req, res) => {
         CANCELLED: '❌ Отменено'
       };
 
-      await answerCallbackQuery(id, `Статус обновлён: ${statusMap[newStatus]}`);
+      await answerCallbackQuery(id, `Статус: ${statusMap[newStatus]}`);
 
-      // Remove inline keyboard after action
-      const axios = require('axios');
+      const operatorText = message.text + `\n\n<b>Статус: ${statusMap[newStatus]}</b>${operatorName ? `\nОператор: ${operatorName}` : ''}`;
+
+      const remainingButtons = newStatus === 'IN_PROGRESS'
+        ? { inline_keyboard: [[
+            { text: '🏁 Завершить', callback_data: `status:COMPLETED:${orderId}` },
+            { text: '❌ Отменить', callback_data: `status:CANCELLED:${orderId}` }
+          ]]}
+        : { inline_keyboard: [] };
+
       await axios.post(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/editMessageText`, {
         chat_id: message.chat.id,
         message_id: message.message_id,
-        text: message.text + `\n\n<b>Статус: ${statusMap[newStatus]}</b>`,
-        parse_mode: 'HTML'
+        text: operatorText,
+        parse_mode: 'HTML',
+        reply_markup: remainingButtons
       });
+
+      if (order.user?.telegramId) {
+        await notifyUser(order.user.telegramId, newStatus, orderId, operatorName);
+      }
+
     } catch (e) {
       console.error('Callback error:', e.message);
       await answerCallbackQuery(id, 'Ошибка обновления');
@@ -49,20 +69,18 @@ router.post('/', async (req, res) => {
     return res.json({ ok: true });
   }
 
-  // Handle messages
   if (body.message) {
     const { message } = body;
     const chatId = message.chat.id;
     const text = message.text;
 
-    // Handle /start command
-    if (text === '/start') {
+    if (text === '/start' || text?.startsWith('/start')) {
       await sendMessage(chatId,
-        '👋 Добро пожаловать в VIP Driver!\n\nОткройте приложение для заказа водителя.',
+        '👋 Добро пожаловать в LuxTaxi!\n\nОткройте приложение для заказа водителя.',
         {
           reply_markup: {
             inline_keyboard: [[
-              { text: '🚗 Открыть приложение', web_app: { url: process.env.MINI_APP_URL || 'https://yourdomain.com' } }
+              { text: '🚗 Открыть приложение', web_app: { url: process.env.MINI_APP_URL || 'https://luxtax1.ru' } }
             ]]
           }
         }
@@ -70,24 +88,20 @@ router.post('/', async (req, res) => {
       return res.json({ ok: true });
     }
 
-    // If message is from operator chat — ignore
     if (String(chatId) === String(process.env.OPERATOR_CHAT_ID)) {
       return res.json({ ok: true });
     }
 
-    // User wants to talk to operator (triggered by mini app)
     if (text === '/operator') {
       await sendMessage(chatId, '💬 Опишите вашу задачу. Оператор свяжется с вами в ближайшее время.');
       return res.json({ ok: true });
     }
 
-    // Forward all user messages to operator chat
     try {
       await forwardMessage(chatId, process.env.OPERATOR_CHAT_ID, message.message_id);
-      // Add context
       const user = message.from;
       await sendMessage(process.env.OPERATOR_CHAT_ID,
-        `📨 Сообщение от @${user.username || user.first_name} (ID: ${user.id})`
+        `📨 Сообщение от ${user.first_name || ''}${user.username ? ' @' + user.username : ''} (ID: ${user.id})`
       );
     } catch (e) {
       console.error('Forward error:', e.message);
